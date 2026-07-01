@@ -2,6 +2,7 @@ import os
 from openai import OpenAI 
 from fastapi import FastAPI, UploadFile
 from dotenv import load_dotenv
+from pypdf import PdfReader
 
 
 load_dotenv(override=True)
@@ -10,6 +11,20 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY") , base_url=os.getenv("OPENAI
 
 @app.post("/upload")
 async def get_file(file: UploadFile):
-    uploaded_filename = file.filename
-    return {"filename": uploaded_filename, "status": "received"}
+    
+    file_content_type = file.content_type
+    if file_content_type != "application/pdf":
+        return {"error": "Only PDF files are supported"}
+ 
+    text = ""
+    reader = PdfReader(file.file)
+    for page in reader.pages:
+        extracted_page = page.extract_text()
+        if  extracted_page:
+            text += extracted_page
+
+    
+   
+    
+    return {"filename": file.filename, "text_preview": text[:200]}
 
