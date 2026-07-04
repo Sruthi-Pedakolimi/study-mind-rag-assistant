@@ -6,6 +6,7 @@ from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import chromadb
 import uuid
+from pydantic import BaseModel 
 
 
 load_dotenv(override=True)
@@ -17,6 +18,12 @@ text_splitter = RecursiveCharacterTextSplitter(
 )
 chroma_client = chromadb.PersistentClient(path="./chroma_data")
 collection = chroma_client.get_or_create_collection(name="study_materials")
+
+
+class AskRequest(BaseModel):
+    question: str 
+    document_id: str
+
 
 @app.post("/upload")
 async def get_file(file: UploadFile):
@@ -47,7 +54,23 @@ async def get_file(file: UploadFile):
         metadata.append({"document_id": str(document_id)})
 
     collection.add(ids=chunkids, documents=documents, embeddings=embeddings, metadatas=metadata)
-    return {"filename": file.filename, "chunks_len": len(chunks), "response_len": len(response.data)}
+    return {"document_id": str(document_id)}
 
-result = collection.get(limit=2)
-print(result)
+
+@app.post("/ask")
+async def ask_query(request: AskRequest):
+    question_response = client.embeddings.create(input=request.question, model="text-embedding-3-small")
+    results = collection.query(
+            query_embeddings=[question_response.data[0].embedding], 
+            n_results=3, 
+            where={"document_id":request.document_id}
+        )
+    
+    context = "\n\n".join(results["documents"][0])
+    prompt = f"""Answer the question based only on the following context. if the answer isn't there in the context, say you dont know.
+            Context: {context}
+            question: {request.question}
+            """
+    response = client.responses.create(model="gpt-4.1", input=[{"role": "user", "content":prompt}])
+    output = response.output[0].content[0].text
+    return {"answer": output}
