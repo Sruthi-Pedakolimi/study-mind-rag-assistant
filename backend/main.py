@@ -11,6 +11,7 @@ import openai
 import chromadb
 import uuid
 import logging
+import redis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ app.add_middleware(CORSMiddleware,
                    allow_headers=["*"],
                    allow_credentials=True,)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY") , base_url=os.getenv("OPENAI_BASE_URL"))
+redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=2000,
     chunk_overlap=200,
@@ -118,6 +120,12 @@ async def ask_query(request: AskRequest):
     if not request.document_id:
         raise HTTPException(status_code=400, detail="Document ID is not provided")
     
+    cache_key = f"{request.document_id}:{request.question.lower().strip()}"
+    cached_answer=redis_client.get(cache_key)
+    if cached_answer:
+        return {"answer": cached_answer}
+    
+    
     question_response = call_openai_safely(client.embeddings.create,input=request.question, model="text-embedding-3-small")
     results = collection.query(
             query_embeddings=[question_response.data[0].embedding], 
@@ -138,5 +146,5 @@ async def ask_query(request: AskRequest):
         logger.error(f"Unexpected response shape: {e}")
         raise HTTPException(status_code=500, detail="Failed to process the AI response")
 
-  
+    redis_client.set(cache_key, output)
     return {"answer": output}
