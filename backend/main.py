@@ -1,21 +1,28 @@
-import os
-import openai
 from openai import OpenAI 
 from fastapi import FastAPI, UploadFile, HTTPException
 from dotenv import load_dotenv
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError, PdfStreamError, EmptyFileError
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+import os
+import openai
 import chromadb
 import uuid
-from pydantic import BaseModel 
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 load_dotenv(override=True)
 app = FastAPI()
+app.add_middleware(CORSMiddleware, 
+                   allow_origins=["http://localhost:5173"],
+                   allow_methods=["*"],
+                   allow_headers=["*"],
+                   allow_credentials=True,)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY") , base_url=os.getenv("OPENAI_BASE_URL"))
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=2000,
@@ -23,6 +30,8 @@ text_splitter = RecursiveCharacterTextSplitter(
 )
 chroma_client = chromadb.PersistentClient(path="./chroma_data")
 collection = chroma_client.get_or_create_collection(name="study_materials")
+
+
 
 
 class AskRequest(BaseModel):
@@ -69,7 +78,6 @@ def extract_text_from_pdf(file: UploadFile) -> str:
 
    
 def store_chunks_in_chromadb(document_id: uuid.UUID, chunks: list[str], response) -> None:
-
     chunkids = []
     embeddings = []
     documents = []
@@ -99,7 +107,7 @@ async def get_file(file: UploadFile):
     document_id = uuid.uuid4()
     store_chunks_in_chromadb(document_id, chunks, response)
 
-    return {"document_id": str(document_id)}
+    return {"document_id": str(document_id), "file_name": file.filename}
 
 
 @app.post("/ask")
